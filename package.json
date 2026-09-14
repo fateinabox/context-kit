@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "Thin context-injection extensions for pi: a skill-stubs manifest and an optional thin tool-schema override.",
   "private": true,
+  "scripts": {
+    "postinstall": "node scripts/install-skills.js"
+  },
   "pi": {
     "extensions": [
       "extensions/skill-manifest.ts",
