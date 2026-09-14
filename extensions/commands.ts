@@ -162,6 +162,53 @@ export default function commandsExtension(pi: any) {
     },
   });
 
+  // ─── /ctx-swap ────────────────────────────────────────────────────────────
+  pi.registerCommand("ctx-swap", {
+    description: "Save KV cache to a snapshot, then flush. Usage: /ctx-swap [name]",
+    handler: async (args: string, ctx: any) => {
+      try {
+        const modelsRes = await fetch(`${LLAMA_HOST}/v1/models`);
+        const modelsData = await modelsRes.json();
+        const loaded = modelsData?.data?.find((m: any) => m.status?.value === "loaded");
+        const model = loaded?.id || DEFAULT_MODEL;
+
+        const name = args.trim() || new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+        const filename = name.endsWith(".bin") ? name : `${name}.bin`;
+
+        // Save
+        const saveRes = await fetch(`${LLAMA_HOST}/slots/0?action=save`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model, filename }),
+        });
+        const saveData = await saveRes.json();
+        if (!saveRes.ok) {
+          ctx.ui?.notify(`Failed to save snapshot: ${saveData?.error?.message || saveRes.statusText}`, "error");
+          return;
+        }
+
+        // Flush
+        const flushRes = await fetch(`${LLAMA_HOST}/slots/0?action=erase`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model }),
+        });
+        const flushData = await flushRes.json();
+        if (!flushRes.ok) {
+          ctx.ui?.notify(`Saved but failed to flush: ${flushData?.error?.message || flushRes.statusText}`, "error");
+          return;
+        }
+
+        ctx.ui?.notify(
+          `Swapped: saved ${saveData.n_saved} tokens to ${saveData.filename}, then flushed ${flushData.n_erased} tokens.\nRollback: /ctx-restore ${name}`,
+          "info"
+        );
+      } catch (err) {
+        ctx.ui?.notify("Failed to swap: " + String(err), "error");
+      }
+    },
+  });
+
   // ─── /ctx-save ────────────────────────────────────────────────────────────
   pi.registerCommand("ctx-save", {
     description: "Save the llama.cpp KV cache to a snapshot. Usage: /ctx-save [name]",
