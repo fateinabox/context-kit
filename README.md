@@ -18,7 +18,10 @@ indices, and adds llama.cpp context monitoring with KV cache management.
 | Command | Action |
 |---------|--------|
 | `/ctx-status` | Show current llama.cpp context usage with a progress bar |
-| `/ctx-flush` | Manually flush the KV cache slot |
+| `/ctx-flush` | Erase the KV cache slot (resets context memory) |
+| `/ctx-save [name]` | Save KV cache to a snapshot file (defaults to timestamp) |
+| `/ctx-restore [name]` | Restore KV cache from a snapshot (defaults to most recent) |
+| `/ctx-snapshots` | List available snapshots with size and age |
 | `/ctx-tools [on\|off]` | Toggle thin tool schemas |
 | `/ctx-skills [on\|off]` | Toggle skill manifest injection |
 
