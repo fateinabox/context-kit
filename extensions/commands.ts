@@ -2,10 +2,13 @@
  * commands.ts — /ctx-* commands for the context-kit plugin.
  *
  * Commands:
- *   /ctx-status   Show current llama.cpp context usage.
- *   /ctx-flush    Flush the llama.cpp KV cache slot.
- *   /ctx-tools    Toggle thin tool schemas on/off.
- *   /ctx-skills   Toggle skill manifest injection on/off.
+ *   /ctx-status       Show current llama.cpp context usage.
+ *   /ctx-flush        Flush the llama.cpp KV cache slot.
+ *   /ctx-save [name]  Save KV cache to a snapshot file (default: timestamp).
+ *   /ctx-restore [name] Restore KV cache from a snapshot (default: most recent).
+ *   /ctx-snapshots    List available snapshots.
+ *   /ctx-tools        Toggle thin tool schemas on/off.
+ *   /ctx-skills       Toggle skill manifest injection on/off.
  */
 
 import { promises as fs } from "fs";
@@ -40,6 +43,30 @@ async function saveState(state: KitState) {
 // Expose state to sibling extensions via a shared module-level cache.
 // (Extensions in the same plugin share the process; this is sufficient.)
 export const getState = loadState;
+
+const SNAPSHOT_DIR = process.env.LLAMA_SLOT_SAVE_PATH || "/opt/models/kvcache";
+
+interface Snapshot {
+  filename: string;
+  size: number;
+  mtime: number;
+}
+
+async function listSnapshots(): Promise<Snapshot[]> {
+  try {
+    const files = await fs.readdir(SNAPSHOT_DIR);
+    const snaps: Snapshot[] = [];
+    for (const f of files) {
+      if (!f.endsWith(".bin")) continue;
+      const stat = await fs.stat(path.join(SNAPSHOT_DIR, f));
+      snaps.push({ filename: f, size: stat.size, mtime: stat.mtimeMs });
+    }
+    snaps.sort((a, b) => b.mtime - a.mtime);
+    return snaps;
+  } catch {
+    return [];
+  }
+}
 
 async function fetchLlamaMetrics(): Promise<{ n_ctx: number; n_tokens_max: number; usagePct: number; model: string } | null> {
   try {
@@ -125,6 +152,100 @@ export default function commandsExtension(pi: any) {
         ctx.ui?.notify(`KV cache flushed. ${data.n_erased} tokens erased from slot ${data.id_slot}.`, "info");
       } catch (err) {
         ctx.ui?.notify("Failed to flush KV cache: " + String(err), "error");
+      }
+    },
+  });
+
+  // ─── /ctx-save ────────────────────────────────────────────────────────────
+  pi.registerCommand("ctx-save", {
+    description: "Save the llama.cpp KV cache to a snapshot. Usage: /ctx-save [name]",
+    handler: async (args: string, ctx: any) => {
+      try {
+        const modelsRes = await fetch(`${LLAMA_HOST}/v1/models`);
+        const modelsData = await modelsRes.json();
+        const loaded = modelsData?.data?.find((m: any) => m.status?.value === "loaded");
+        const model = loaded?.id || DEFAULT_MODEL;
+
+        const name = args.trim() || new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+        const filename = name.endsWith(".bin") ? name : `${name}.bin`;
+
+        const res = await fetch(`${LLAMA_HOST}/slots/0?action=save`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model, filename }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          ctx.ui?.notify(`Failed to save snapshot: ${data?.error?.message || res.statusText}`, "error");
+          return;
+        }
+        ctx.ui?.notify(`Snapshot saved: ${data.filename} (${data.n_saved} tokens, ${(data.n_written / 1024 / 1024).toFixed(1)} MB)`, "info");
+      } catch (err) {
+        ctx.ui?.notify("Failed to save snapshot: " + String(err), "error");
+      }
+    },
+  });
+
+  // ─── /ctx-restore ─────────────────────────────────────────────────────────
+  pi.registerCommand("ctx-restore", {
+    description: "Restore the llama.cpp KV cache from a snapshot. Usage: /ctx-restore [name]",
+    handler: async (args: string, ctx: any) => {
+      try {
+        const modelsRes = await fetch(`${LLAMA_HOST}/v1/models`);
+        const modelsData = await modelsRes.json();
+        const loaded = modelsData?.data?.find((m: any) => m.status?.value === "loaded");
+        const model = loaded?.id || DEFAULT_MODEL;
+
+        // If no name given, find the most recent snapshot.
+        let filename: string;
+        if (args.trim()) {
+          filename = args.trim().endsWith(".bin") ? args.trim() : `${args.trim()}.bin`;
+        } else {
+          // List snapshots and pick the most recent.
+          const snaps = await listSnapshots();
+          if (snaps.length === 0) {
+            ctx.ui?.notify("No snapshots available.", "error");
+            return;
+          }
+          filename = snaps[0].filename; // most recent
+        }
+
+        const res = await fetch(`${LLAMA_HOST}/slots/0?action=restore`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model, filename }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          ctx.ui?.notify(`Failed to restore snapshot: ${data?.error?.message || res.statusText}`, "error");
+          return;
+        }
+        ctx.ui?.notify(`Snapshot restored: ${data.filename} (${data.n_restored} tokens)`, "info");
+      } catch (err) {
+        ctx.ui?.notify("Failed to restore snapshot: " + String(err), "error");
+      }
+    },
+  });
+
+  // ─── /ctx-snapshots ───────────────────────────────────────────────────────
+  pi.registerCommand("ctx-snapshots", {
+    description: "List available KV cache snapshots.",
+    handler: async (_args: string, ctx: any) => {
+      try {
+        const snaps = await listSnapshots();
+        if (snaps.length === 0) {
+          ctx.ui?.notify("No snapshots available.", "info");
+          return;
+        }
+        const lines = snaps.map((s, i) => {
+          const size = (s.size / 1024 / 1024).toFixed(1);
+          const age = Date.now() - s.mtime;
+          const ageStr = age < 60000 ? "just now" : age < 3600000 ? `${Math.round(age / 60000)}m ago` : `${Math.round(age / 3600000)}h ago`;
+          return `${i === 0 ? "▶" : "·"} ${s.filename}  ${size} MB  ${ageStr}`;
+        });
+        ctx.ui?.notify(`Snapshots (most recent first):\n${lines.join("\n")}`, "info");
+      } catch (err) {
+        ctx.ui?.notify("Failed to list snapshots: " + String(err), "error");
       }
     },
   });
