@@ -1,0 +1,14 @@
+{
+  "name": "@richard/context-kit",
+  "version": "0.1.0",
+  "description": "Thin context-injection extensions for pi: a skill-stubs manifest and an optional thin tool-schema override.",
+  "private": true,
+  "pi": {
+    "extensions": [
+      "extensions/skill-manifest.ts",
+      "extensions/tool-thin-schema.ts",
+      "extensions/context-steering.ts",
+      "extensions/commands.ts"
+    ]
+  }
+}
