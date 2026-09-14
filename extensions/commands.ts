@@ -412,19 +412,36 @@ export default function commandsExtension(pi: any) {
       if (state.sessionEndKeep === 0) return; // disabled
 
       const snaps = await listSnapshots();
+      if (snaps.length === 0) return; // no snapshots, nothing to do
       if (snaps.length <= state.sessionEndKeep) return; // nothing to prune
 
       const toDelete = snaps.slice(state.sessionEndKeep);
+      let deleted = 0;
       for (const snap of toDelete) {
-        await fs.unlink(path.join(SNAPSHOT_DIR, snap.filename));
+        try {
+          await fs.unlink(path.join(SNAPSHOT_DIR, snap.filename));
+          deleted++;
+        } catch {
+          // File already gone or permission issue — skip
+        }
       }
 
-      ctx.ui?.notify(
-        `Session cleanup: deleted ${toDelete.length} old snapshot(s), kept ${state.sessionEndKeep}.`,
-        "info"
-      );
+      if (deleted > 0) {
+        ctx.ui?.notify(
+          `Session cleanup: deleted ${deleted} old snapshot(s), kept ${state.sessionEndKeep}.`,
+          "info"
+        );
+      }
     } catch (err) {
-      console.error("[context-kit] session-end cleanup failed:", err);
+      // Snapshot dir may not exist locally (remote llama server).
+      // Fail gracefully — cleanup is best-effort.
+      if (ctx.ui) {
+        ctx.ui.notify(
+          `Session cleanup skipped: could not access snapshot directory (${SNAPSHOT_DIR}). ` +
+          `The llama server may be remote.`,
+          "warning"
+        );
+      }
     }
   });
 }
