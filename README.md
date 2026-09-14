@@ -1,60 +1,102 @@
 # context-kit
 
-Thin context-injection extensions for the pi coding agent. Two independent
-extensions, both safe to always load:
+Thin context-injection plugin for the [pi](https://github.com/earendil-works/pi) coding agent.
+Reduces system-prompt bloat by replacing verbose tool schemas and skill files with compact
+indices, and adds llama.cpp context monitoring with KV cache management.
 
-## `skill-manifest`
+## Extensions
 
-Generates a one-line-per-skill manifest from `~/.pi/agent/skills/*/SKILL.md`
-and injects it into the systemprompt at session start.
+| Extension | Purpose | Default |
+|-----------|---------|---------|
+| `skill-manifest` | Injects a one-line-per-skill index into the system prompt | **on** |
+| `tool-thin-schema` | Replaces verbose tool descriptions with short one-liners | **off** |
+| `context-steering` | Monitors llama.cpp context; warns at ≥70%, auto-flushes KV cache on handoff | **on** |
+| `commands` | Exposes `/ctx-*` commands for runtime control | **on** |
 
-- Reads the real YAML `description:` / `trigger:` fields (not body-scrape).
-- Stamps `disable-model-invocation: true` into any SKILL.md missing it.
-- Writes `~/.pi/agent/skills_manifest.md`.
-- Injects the manifest via `ctx.injectContext({ role: "system", ephemeral: true })`.
+## Commands
 
-No toggle — always active. To disable, remove the file from `pi.extensions`.
+| Command | Action |
+|---------|--------|
+| `/ctx-status` | Show current llama.cpp context usage with a progress bar |
+| `/ctx-flush` | Manually flush the KV cache slot |
+| `/ctx-tools [on\|off]` | Toggle thin tool schemas |
+| `/ctx-skills [on\|off]` | Toggle skill manifest injection |
 
-## `tool-thin-schema`
-
-**Optional.** Overrides the built-in tool *schema* descriptions (`read`,
-`bash`, `edit`, `write`) with short "facilitator" one-liners, for testing.
-
-- **Toggle:** set `PI_THIN_TOOL_SCHEMA=1` (or `true`) to enable. Off by default.
-- Rebuilds each tool via the harness's exported factories
-  (`createReadTool` / `createBashTool` / `createEditTool` / `createWriteTool`)
-  and reuses the real `execute` + `parameters`, overriding only `description`.
-  Execution is unchanged; only the model-facing description is shorter.
-- **Risk:** shorter schema descriptions may cause the model to build less-valid
-  calls (e.g. forgetting `offset`/`limit` on `read`). If tool-calling degrades,
-  unset `PI_THIN_TOOL_SCHEMA` and restart.
+Toggles persist in `state.json` (local, gitignored) and take effect on the next session.
 
 ## Install
 
-The package is installed by the pi package manager. The `pi.extensions` field
-in `package.json` declares the entry points; the harness loads them.
-
+```bash
+pi install git:github.com/<you>/context-kit
 ```
-# from a local path
-pi install <path-to-this-package>
 
-# or, if published to a registry / git
-pi install npm:<name>
-pi install git:<url>
+Or from a local path:
+
+```bash
+pi install ./context-kit
 ```
 
 ## Uninstall
 
+```bash
+pi uninstall context-kit
 ```
-pi uninstall <name>
-```
+
+## Configuration
+
+All configuration is via environment variables and the `/ctx-*` commands. No config file required.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `PI_AGENT_DIR` | `~/.pi/agent` | Base directory for skills and manifest |
+| `LLAMA_HOST` | `http://localhost:8080` | llama.cpp router address |
+| `PI_MODEL` | `Qwen3.8-27B-Coder` | Fallback model name (auto-detects loaded model) |
+
+## How It Works
+
+### skill-manifest
+
+- Scans `~/.pi/agent/skills/*/SKILL.md` at session start.
+- Reads YAML `description:` / `trigger:` fields (not body-scrape).
+- Stamps `disable-model-invocation: true` into any SKILL.md missing it.
+- Writes `~/.pi/agent/skills_manifest.md`.
+- Injects the manifest into the system prompt via `before_agent_start`.
+- Full skill content is **not** in the prompt — the agent `read()`s it on demand.
+
+### tool-thin-schema
+
+- Shadows the built-in `read`, `bash`, `edit`, `write` tools with the same `execute`
+  and `parameters` but a shorter `description`.
+- Execution is unchanged; only the model-facing description is shorter.
+- **Risk:** shorter descriptions may cause the model to forget edge-case params.
+  If tool-calling degrades, run `/ctx-tools off` and restart.
+
+### context-steering
+
+- On each turn, queries the llama.cpp router for the loaded model's `n_tokens_max`.
+- If usage ≥ 70%, injects a high-water-mark warning into the system prompt instructing
+  the agent to complete its current acorn or invoke the `handoff` skill.
+- On `turn_end`, if the last assistant message contains `[READY_FOR_KV_FLUSH]`,
+  flushes the KV cache slot and notifies the user.
 
 ## Files
 
 ```
 context-kit/
   package.json              # pi manifest (pi.extensions)
+  .gitignore
   extensions/
     skill-manifest.ts       # skill-stubs manifest injection
-    tool-thin-schema.ts     # optional thin tool-schema override (PI_THIN_TOOL_SCHEMA)
+    tool-thin-schema.ts     # thin tool-schema override
+    context-steering.ts     # llama.cpp context monitoring + KV flush
+    commands.ts             # /ctx-* commands
+  state.json                # runtime toggles (gitignored)
 ```
+
+## Peer Dependencies
+
+- `@earendil-works/pi-coding-agent` (provided by the Pi harness as a virtual module)
+
+## License
+
+MIT
