@@ -345,24 +345,24 @@ export default function commandsExtension(pi: any) {
       const state = loadState();
       const arg = args.trim().toLowerCase();
 
-      if (arg === "off") {
-        state.sessionEndKeep = 0; // disabled
+      if (arg === "disable") {
+        state.sessionEndKeep = -1; // disabled
       } else if (arg === "") {
         // Show current value
-        const label = state.sessionEndKeep === 0 ? "DISABLED" : `keep ${state.sessionEndKeep}`;
-        ctx.ui?.notify(`Session-end cleanup: ${label} (takes effect next session)\nUsage: /ctx-session-end <N> to keep N snapshots, /ctx-session-end off to disable`, "info");
+        const label = state.sessionEndKeep === -1 ? "DISABLED" : `keep ${state.sessionEndKeep}`;
+        ctx.ui?.notify(`Session-end cleanup: ${label} (takes effect next session)\nUsage: /ctx-session-end <N> to keep N snapshots, /ctx-session-end disable to turn off`, "info");
         return;
       } else {
         const n = parseInt(arg, 10);
         if (isNaN(n) || n < 0) {
-          ctx.ui?.notify(`Invalid: ${arg}. Use a non-negative number or "off".`, "error");
+          ctx.ui?.notify(`Invalid: ${arg}. Use a non-negative number or "disable".`, "error");
           return;
         }
         state.sessionEndKeep = n;
       }
 
       await saveState(state);
-      const label = state.sessionEndKeep === 0 ? "DISABLED" : `keep ${state.sessionEndKeep}`;
+      const label = state.sessionEndKeep === -1 ? "DISABLED" : `keep ${state.sessionEndKeep}`;
       ctx.ui?.notify(`Session-end cleanup: ${label} (takes effect next session)`, "info");
     },
   });
@@ -409,7 +409,7 @@ export default function commandsExtension(pi: any) {
   pi.on("session_end", async (_event: any, ctx: any) => {
     try {
       const state = loadState();
-      if (state.sessionEndKeep === 0) return; // disabled
+      if (state.sessionEndKeep === -1) return; // disabled
 
       const snaps = await listSnapshots();
       if (snaps.length === 0) return; // no snapshots, nothing to do
