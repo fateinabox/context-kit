@@ -106,8 +106,23 @@ export default function commandsExtension(pi: any) {
     description: "Flush the llama.cpp KV cache slot (resets context memory).",
     handler: async (_args: string, ctx: any) => {
       try {
-        await fetch(`${LLAMA_HOST}/slots/0?model=${DEFAULT_MODEL}&action=erase`, { method: "POST" });
-        ctx.ui?.notify("KV cache flushed. Slot 0 memory reset.", "info");
+        // Find the loaded model (not necessarily PI_MODEL).
+        const modelsRes = await fetch(`${LLAMA_HOST}/v1/models`);
+        const modelsData = await modelsRes.json();
+        const loaded = modelsData?.data?.find((m: any) => m.status?.value === "loaded");
+        const model = loaded?.id || DEFAULT_MODEL;
+
+        const res = await fetch(`${LLAMA_HOST}/slots/0?action=erase`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          ctx.ui?.notify(`Failed to flush KV cache: ${data?.error?.message || res.statusText}`, "error");
+          return;
+        }
+        ctx.ui?.notify(`KV cache flushed. ${data.n_erased} tokens erased from slot ${data.id_slot}.`, "info");
       } catch (err) {
         ctx.ui?.notify("Failed to flush KV cache: " + String(err), "error");
       }

@@ -90,12 +90,21 @@ CRITICAL INSTRUCTION: High context utilization detected.
 
       if (!content.includes("[READY_FOR_KV_FLUSH]")) return;
 
-      await fetch(`${LLAMA_HOST}/slots/0?model=${DEFAULT_MODEL}&action=erase`, {
+      // Find the loaded model.
+      const modelsRes = await fetch(`${LLAMA_HOST}/v1/models`);
+      const modelsData = await modelsRes.json();
+      const loaded = modelsData?.data?.find((m: any) => m.status?.value === "loaded");
+      const model = loaded?.id || DEFAULT_MODEL;
+
+      const res = await fetch(`${LLAMA_HOST}/slots/0?action=erase`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model }),
       });
+      const data = await res.json();
 
       ctx.ui?.notify(
-        "Context limit reached: Completed handoff and flushed llama.cpp KV cache.",
+        `Context limit reached: Completed handoff and flushed llama.cpp KV cache. ${data.n_erased} tokens erased.`,
         "warning"
       );
     } catch (err) {
