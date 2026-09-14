@@ -22,6 +22,7 @@ interface KitState {
   thinTools: boolean;
   thinSkills: boolean;
   threshold: number;
+  sessionEndKeep: number; // 0 = off, N = keep N most recent snapshots
 }
 
 function loadState(): KitState {
@@ -32,9 +33,10 @@ function loadState(): KitState {
       thinTools: parsed.thinTools ?? false,
       thinSkills: parsed.thinSkills ?? true,
       threshold: parsed.threshold ?? 70,
+      sessionEndKeep: parsed.sessionEndKeep ?? 1,
     };
   } catch {
-    return { thinTools: false, thinSkills: true, threshold: 70 };
+    return { thinTools: false, thinSkills: true, threshold: 70, sessionEndKeep: 1 };
   }
 }
 
@@ -336,6 +338,35 @@ export default function commandsExtension(pi: any) {
     },
   });
 
+  // ─── /ctx-session-end ─────────────────────────────────────────────────────
+  pi.registerCommand("ctx-session-end", {
+    description: "Set how many snapshots to keep on session end. Usage: /ctx-session-end [N|off]",
+    handler: async (args: string, ctx: any) => {
+      const state = loadState();
+      const arg = args.trim().toLowerCase();
+
+      if (arg === "off") {
+        state.sessionEndKeep = 0; // disabled
+      } else if (arg === "") {
+        // Show current value
+        const label = state.sessionEndKeep === 0 ? "DISABLED" : `keep ${state.sessionEndKeep}`;
+        ctx.ui?.notify(`Session-end cleanup: ${label} (takes effect next session)\nUsage: /ctx-session-end <N> to keep N snapshots, /ctx-session-end off to disable`, "info");
+        return;
+      } else {
+        const n = parseInt(arg, 10);
+        if (isNaN(n) || n < 0) {
+          ctx.ui?.notify(`Invalid: ${arg}. Use a non-negative number or "off".`, "error");
+          return;
+        }
+        state.sessionEndKeep = n;
+      }
+
+      await saveState(state);
+      const label = state.sessionEndKeep === 0 ? "DISABLED" : `keep ${state.sessionEndKeep}`;
+      ctx.ui?.notify(`Session-end cleanup: ${label} (takes effect next session)`, "info");
+    },
+  });
+
   // ─── /ctx-tools ────────────────────────────────────────────────────────────
   pi.registerCommand("ctx-tools", {
     description: "Toggle thin tool schemas on/off.",
@@ -372,5 +403,28 @@ export default function commandsExtension(pi: any) {
         "info"
       );
     },
+  });
+
+  // ─── Session-end snapshot cleanup ─────────────────────────────────────────
+  pi.on("session_end", async (_event: any, ctx: any) => {
+    try {
+      const state = loadState();
+      if (state.sessionEndKeep === 0) return; // disabled
+
+      const snaps = await listSnapshots();
+      if (snaps.length <= state.sessionEndKeep) return; // nothing to prune
+
+      const toDelete = snaps.slice(state.sessionEndKeep);
+      for (const snap of toDelete) {
+        await fs.unlink(path.join(SNAPSHOT_DIR, snap.filename));
+      }
+
+      ctx.ui?.notify(
+        `Session cleanup: deleted ${toDelete.length} old snapshot(s), kept ${state.sessionEndKeep}.`,
+        "info"
+      );
+    } catch (err) {
+      console.error("[context-kit] session-end cleanup failed:", err);
+    }
   });
 }
