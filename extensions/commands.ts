@@ -21,14 +21,20 @@ const STATE_PATH = path.join(__dirname, "..", "state.json");
 interface KitState {
   thinTools: boolean;
   thinSkills: boolean;
+  threshold: number;
 }
 
 function loadState(): KitState {
   try {
     const raw = fs.readFileSync(STATE_PATH, "utf-8");
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    return {
+      thinTools: parsed.thinTools ?? false,
+      thinSkills: parsed.thinSkills ?? true,
+      threshold: parsed.threshold ?? 70,
+    };
   } catch {
-    return { thinTools: false, thinSkills: true };
+    return { thinTools: false, thinSkills: true, threshold: 70 };
   }
 }
 
@@ -247,6 +253,39 @@ export default function commandsExtension(pi: any) {
       } catch (err) {
         ctx.ui?.notify("Failed to list snapshots: " + String(err), "error");
       }
+    },
+  });
+
+  // ─── /ctx-threshold ───────────────────────────────────────────────────────
+  pi.registerCommand("ctx-threshold", {
+    description: "Set the context-steering warning threshold. Usage: /ctx-threshold [on|off|pct]",
+    handler: async (args: string, ctx: any) => {
+      const state = loadState();
+      const arg = args.trim().toLowerCase();
+
+      if (arg === "on") {
+        state.threshold = 70; // default
+      } else if (arg === "off") {
+        state.threshold = 0; // disabled
+      } else if (arg === "") {
+        // Show current value
+        ctx.ui?.notify(
+          `Context threshold: ${state.threshold === 0 ? "DISABLED" : state.threshold + "%"} (takes effect next session)\nUsage: /ctx-threshold <pct> to set, /ctx-threshold off to disable, /ctx-threshold on for default (70%)`,
+          "info"
+        );
+        return;
+      } else {
+        const pct = parseInt(arg, 10);
+        if (isNaN(pct) || pct < 0 || pct > 100) {
+          ctx.ui?.notify(`Invalid threshold: ${arg}. Use a number 0-100, "on", or "off".`, "error");
+          return;
+        }
+        state.threshold = pct;
+      }
+
+      await saveState(state);
+      const label = state.threshold === 0 ? "DISABLED" : state.threshold + "%";
+      ctx.ui?.notify(`Context threshold: ${label} (takes effect next session)`, "info");
     },
   });
 

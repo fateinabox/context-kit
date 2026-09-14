@@ -5,8 +5,22 @@
  * the KV cache slot.
  */
 
+import { promises as fs } from "fs";
+import path from "path";
+
 const LLAMA_HOST = process.env.LLAMA_HOST || "http://localhost:8080";
 const DEFAULT_MODEL = process.env.PI_MODEL || "Qwen3.8-27B-Coder";
+const STATE_PATH = path.join(__dirname, "..", "state.json");
+
+function getThreshold(): number {
+  try {
+    const raw = fs.readFileSync(STATE_PATH, "utf-8");
+    const parsed = JSON.parse(raw);
+    return parsed.threshold ?? 70;
+  } catch {
+    return 70;
+  }
+}
 
 interface LlamaMetrics {
   n_ctx: number;
@@ -61,7 +75,8 @@ export default function contextSteeringExtension(pi: any) {
       if (!metrics) return undefined;
 
       const { n_ctx, n_tokens_max, usagePct } = metrics;
-      if (usagePct < 70) return undefined;
+      const threshold = getThreshold();
+      if (threshold === 0 || usagePct < threshold) return undefined;
 
       const warning = `⚠️ [CONTEXT HIGH-WATER MARK: ${usagePct.toFixed(1)}% (${n_tokens_max.toLocaleString()}/${n_ctx.toLocaleString()} tokens)]
 CRITICAL INSTRUCTION: High context utilization detected.

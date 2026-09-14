@@ -22,6 +22,7 @@ indices, and adds llama.cpp context monitoring with KV cache management.
 | `/ctx-save [name]` | Save KV cache to a snapshot file (defaults to timestamp) |
 | `/ctx-restore [name]` | Restore KV cache from a snapshot (defaults to most recent) |
 | `/ctx-snapshots` | List available snapshots with size and age |
+| `/ctx-threshold [on\|off\|pct]` | Set the context warning threshold (default 70%) |
 | `/ctx-tools [on\|off]` | Toggle thin tool schemas |
 | `/ctx-skills [on\|off]` | Toggle skill manifest injection |
 
