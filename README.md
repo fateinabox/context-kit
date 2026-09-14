@@ -83,6 +83,20 @@ All configuration is via environment variables and the `/ctx-*` commands. No con
 - On `turn_end`, if the last assistant message contains `[READY_FOR_KV_FLUSH]`,
   flushes the KV cache slot and notifies the user.
 
+## Bundled Skills
+
+| Skill | Purpose |
+|-------|---------|
+| `handoff` | Generate a session summary document for handoff to the next agent |
+| `pass-the-ball` | Load a handoff file, flush KV cache, and hydrate the new session |
+
+These skills are installed alongside the plugin and referenced by `context-steering`'s
+high-water-mark warning. They work with the `/ctx-*` commands:
+
+- **handoff** writes a Markdown summary (no code, pure prompt skill).
+- **pass-the-ball** reads the handoff file, runs `/ctx-flush`, and hydrates context.
+  Optionally runs `/ctx-save` before flushing for rollback via `/ctx-restore`.
+
 ## Files
 
 ```
@@ -94,6 +108,9 @@ context-kit/
     tool-thin-schema.ts     # thin tool-schema override
     context-steering.ts     # llama.cpp context monitoring + KV flush
     commands.ts             # /ctx-* commands
+  skills/
+    handoff/SKILL.md        # session handoff document generator
+    pass-the-ball/SKILL.md  # handoff ingestion + KV flush + hydration
   state.json                # runtime toggles (gitignored)
 ```
 
